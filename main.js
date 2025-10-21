@@ -27,8 +27,11 @@ function createWindow() {
   if (pdfArg && fs.existsSync(pdfArg)) {
     // Open PDF viewer directly
     filePath = path.resolve(pdfArg);
-    mainWindow.loadFile('viewer.html', {
-      query: { file: encodeURIComponent(filePath) }
+    mainWindow.loadFile('viewer.html');
+
+    // Send file path after page loads
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('load-pdf-file', filePath);
     });
   } else {
     // Open main screen
@@ -221,13 +224,13 @@ app.on('activate', () => {
 });
 
 // Handle file open events (macOS)
-app.on('open-file', (event, path) => {
+app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  filePath = path;
 
   if (mainWindow) {
-    mainWindow.loadFile('viewer.html', {
-      query: { file: encodeURIComponent(path) }
+    mainWindow.loadFile('viewer.html');
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('load-pdf-file', filePath);
     });
   }
 });
@@ -248,8 +251,9 @@ if (!gotTheLock) {
       const pdfArg = commandLine.find(arg => arg.toLowerCase().endsWith('.pdf'));
       if (pdfArg && fs.existsSync(pdfArg)) {
         const pdfPath = path.resolve(pdfArg);
-        mainWindow.loadFile('viewer.html', {
-          query: { file: encodeURIComponent(pdfPath) }
+        mainWindow.loadFile('viewer.html');
+        mainWindow.webContents.once('did-finish-load', () => {
+          mainWindow.webContents.send('load-pdf-file', pdfPath);
         });
       }
     }

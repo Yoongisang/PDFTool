@@ -68,24 +68,30 @@ const bookmarksContent = document.getElementById('bookmarksContent');
 
 // Initialize
 function init() {
-  // Get PDF file path from URL
+  // Get PDF file path from URL or wait for IPC message
   const urlParams = new URLSearchParams(window.location.search);
-  pdfFilePath = urlParams.get('file');
+  const urlFilePath = urlParams.get('file');
   const action = urlParams.get('action');
 
-  if (!pdfFilePath) {
-    alert('PDF 파일이 선택되지 않았습니다.');
-    window.location.href = 'index.html';
-    return;
+  if (urlFilePath) {
+    // File path from URL (for backward compatibility)
+    pdfFilePath = decodeURIComponent(urlFilePath);
+    loadPDF(pdfFilePath).then(() => {
+      if (action === 'split') {
+        openSplitModal();
+      }
+    });
+  } else {
+    // Wait for IPC message with file path
+    ipcRenderer.once('load-pdf-file', (event, filePath) => {
+      pdfFilePath = filePath;
+      loadPDF(pdfFilePath).then(() => {
+        if (action === 'split') {
+          openSplitModal();
+        }
+      });
+    });
   }
-
-  // Load PDF
-  loadPDF(pdfFilePath).then(() => {
-    // Check if there's an action to perform
-    if (action === 'split') {
-      openSplitModal();
-    }
-  });
 
   // Event listeners
   setupEventListeners();
