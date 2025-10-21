@@ -416,21 +416,9 @@ function updateZoomLevel() {
 async function generateThumbnails() {
   thumbnailsContent.innerHTML = '';
 
+  // Create placeholder thumbnails first for better UX
+  const thumbnailItems = [];
   for (let i = 1; i <= totalPages; i++) {
-    const page = await pdfDocument.getPage(i);
-    const viewport = page.getViewport({ scale: 0.3 });
-
-    const thumbnailCanvas = document.createElement('canvas');
-    thumbnailCanvas.className = 'thumbnail-canvas';
-    thumbnailCanvas.width = viewport.width;
-    thumbnailCanvas.height = viewport.height;
-
-    const thumbnailCtx = thumbnailCanvas.getContext('2d');
-    await page.render({
-      canvasContext: thumbnailCtx,
-      viewport: viewport
-    }).promise;
-
     const thumbnailItem = document.createElement('div');
     thumbnailItem.className = 'thumbnail-item';
     if (i === currentPage) {
@@ -441,14 +429,42 @@ async function generateThumbnails() {
     pageNum.className = 'thumbnail-page-num';
     pageNum.textContent = `Page ${i}`;
 
-    thumbnailItem.appendChild(thumbnailCanvas);
     thumbnailItem.appendChild(pageNum);
-
     thumbnailItem.addEventListener('click', () => {
       goToPage(i);
     });
 
     thumbnailsContent.appendChild(thumbnailItem);
+    thumbnailItems.push(thumbnailItem);
+  }
+
+  // Render thumbnails asynchronously
+  for (let i = 1; i <= totalPages; i++) {
+    try {
+      const page = await pdfDocument.getPage(i);
+      const viewport = page.getViewport({ scale: 0.3 });
+
+      const thumbnailCanvas = document.createElement('canvas');
+      thumbnailCanvas.className = 'thumbnail-canvas';
+      thumbnailCanvas.width = viewport.width;
+      thumbnailCanvas.height = viewport.height;
+
+      const thumbnailCtx = thumbnailCanvas.getContext('2d');
+
+      // Render the page
+      await page.render({
+        canvasContext: thumbnailCtx,
+        viewport: viewport
+      }).promise;
+
+      // Insert canvas before the page number
+      const thumbnailItem = thumbnailItems[i - 1];
+      const pageNumDiv = thumbnailItem.querySelector('.thumbnail-page-num');
+      thumbnailItem.insertBefore(thumbnailCanvas, pageNumDiv);
+    } catch (error) {
+      console.error(`Error generating thumbnail for page ${i}:`, error);
+      // Continue with next thumbnail even if one fails
+    }
   }
 }
 
