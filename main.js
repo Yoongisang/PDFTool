@@ -2,11 +2,11 @@ const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
-let mainWindow;
-let filePath = null;
+// Multi-window support: Track all windows
+let windows = new Set();
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
+function createWindow(pdfFilePath = null) {
+  const newWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
@@ -20,26 +20,29 @@ function createWindow() {
     show: false
   });
 
-  // Check if a file was passed as command-line argument
-  const args = process.argv.slice(process.defaultApp ? 2 : 1);
-  const pdfArg = args.find(arg => arg.toLowerCase().endsWith('.pdf'));
+  // Track this window
+  windows.add(newWindow);
 
-  if (pdfArg && fs.existsSync(pdfArg)) {
+  if (pdfFilePath) {
     // Open PDF viewer directly
-    filePath = path.resolve(pdfArg);
-    mainWindow.loadFile('viewer.html');
+    newWindow.loadFile('viewer.html');
 
     // Send file path after page loads
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('load-pdf-file', filePath);
+    newWindow.webContents.once('did-finish-load', () => {
+      newWindow.webContents.send('load-pdf-file', pdfFilePath);
     });
   } else {
     // Open main screen
-    mainWindow.loadFile('index.html');
+    newWindow.loadFile('index.html');
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+  newWindow.once('ready-to-show', () => {
+    newWindow.show();
+  });
+
+  // Remove from tracking when closed
+  newWindow.on('closed', () => {
+    windows.delete(newWindow);
   });
 
   // Create application menu
@@ -51,7 +54,8 @@ function createWindow() {
           label: 'Open PDF',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
-            const result = await dialog.showOpenDialog(mainWindow, {
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            const result = await dialog.showOpenDialog(focusedWindow, {
               properties: ['openFile'],
               filters: [
                 { name: 'PDF Files', extensions: ['pdf'] }
@@ -59,7 +63,27 @@ function createWindow() {
             });
 
             if (!result.canceled && result.filePaths.length > 0) {
-              mainWindow.webContents.send('open-pdf', result.filePaths[0]);
+              // Open in new window
+              createWindow(result.filePaths[0]);
+            }
+          }
+        },
+        {
+          label: 'Open PDF in Current Window',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: async () => {
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (!focusedWindow) return;
+
+            const result = await dialog.showOpenDialog(focusedWindow, {
+              properties: ['openFile'],
+              filters: [
+                { name: 'PDF Files', extensions: ['pdf'] }
+              ]
+            });
+
+            if (!result.canceled && result.filePaths.length > 0) {
+              focusedWindow.webContents.send('open-pdf', result.filePaths[0]);
             }
           }
         },
@@ -67,13 +91,19 @@ function createWindow() {
         {
           label: 'Merge PDFs',
           click: () => {
-            mainWindow.webContents.send('show-merge-dialog');
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.webContents.send('show-merge-dialog');
+            }
           }
         },
         {
           label: 'Split PDF',
           click: () => {
-            mainWindow.webContents.send('show-split-dialog');
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.webContents.send('show-split-dialog');
+            }
           }
         },
         { type: 'separator' },
@@ -132,14 +162,13 @@ function createWindow() {
   const menu = Menu.buildFromTemplate(menuTemplate);
   Menu.setApplicationMenu(menu);
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  return newWindow;
 }
 
 // IPC handlers
-ipcMain.handle('select-pdf-file', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+ipcMain.handle('select-pdf-file', async (event) => {
+  const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(focusedWindow, {
     properties: ['openFile'],
     filters: [
       { name: 'PDF Files', extensions: ['pdf'] }
@@ -152,8 +181,14 @@ ipcMain.handle('select-pdf-file', async () => {
   return null;
 });
 
-ipcMain.handle('select-multiple-pdf-files', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
+// Open PDF in new window
+ipcMain.handle('open-pdf-in-new-window', async (event, filePath) => {
+  createWindow(filePath);
+});
+
+ipcMain.handle('select-multiple-pdf-files', async (event) => {
+  const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showOpenDialog(focusedWindow, {
     properties: ['openFile', 'multiSelections'],
     filters: [
       { name: 'PDF Files', extensions: ['pdf'] }
@@ -167,7 +202,8 @@ ipcMain.handle('select-multiple-pdf-files', async () => {
 });
 
 ipcMain.handle('save-pdf-file', async (event, defaultName) => {
-  const result = await dialog.showSaveDialog(mainWindow, {
+  const focusedWindow = BrowserWindow.fromWebContents(event.sender);
+  const result = await dialog.showSaveDialog(focusedWindow, {
     defaultPath: defaultName,
     filters: [
       { name: 'PDF Files', extensions: ['pdf'] }
@@ -209,7 +245,21 @@ ipcMain.on('get-user-data-path', (event) => {
   event.returnValue = app.getPath('userData');
 });
 
-app.whenReady().then(createWindow);
+// App lifecycle
+app.whenReady().then(() => {
+  // Check if a file was passed as command-line argument
+  const args = process.argv.slice(process.defaultApp ? 2 : 1);
+  const pdfArg = args.find(arg => arg.toLowerCase().endsWith('.pdf'));
+
+  if (pdfArg && fs.existsSync(pdfArg)) {
+    // Open PDF viewer directly with the file
+    const pdfPath = path.resolve(pdfArg);
+    createWindow(pdfPath);
+  } else {
+    // Open main screen
+    createWindow();
+  }
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -223,39 +273,22 @@ app.on('activate', () => {
   }
 });
 
-// Handle file open events (macOS)
+// Handle file open events (macOS and Windows when app is already running)
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-
-  if (mainWindow) {
-    mainWindow.loadFile('viewer.html');
-    mainWindow.webContents.once('did-finish-load', () => {
-      mainWindow.webContents.send('load-pdf-file', filePath);
-    });
-  }
+  // Always create a new window for the file
+  createWindow(filePath);
 });
 
-// Handle second instance (Windows)
-const gotTheLock = app.requestSingleInstanceLock();
+// Handle multiple instances - allow them and open new windows
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  // Check if a PDF file was passed
+  const pdfArg = commandLine.find(arg => arg.toLowerCase().endsWith('.pdf'));
 
-if (!gotTheLock) {
-  app.quit();
-} else {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Someone tried to run a second instance, focus our window instead
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-
-      // Check if a PDF file was passed
-      const pdfArg = commandLine.find(arg => arg.toLowerCase().endsWith('.pdf'));
-      if (pdfArg && fs.existsSync(pdfArg)) {
-        const pdfPath = path.resolve(pdfArg);
-        mainWindow.loadFile('viewer.html');
-        mainWindow.webContents.once('did-finish-load', () => {
-          mainWindow.webContents.send('load-pdf-file', pdfPath);
-        });
-      }
-    }
-  });
-}
+  if (pdfArg && fs.existsSync(pdfArg)) {
+    const pdfPath = path.resolve(pdfArg);
+    createWindow(pdfPath);
+  } else {
+    createWindow();
+  }
+});

@@ -172,7 +172,8 @@
     openButton.addEventListener('click', async () => {
       const filePath = await ipcRenderer.invoke('select-pdf-file');
       if (filePath) {
-        openPDFViewer(filePath);
+        // Open in new window instead of current window
+        await ipcRenderer.invoke('open-pdf-in-new-window', filePath);
       }
     });
 
@@ -236,7 +237,7 @@
       dropZone.classList.remove('drag-over');
     });
 
-    dropZone.addEventListener('drop', (e) => {
+    dropZone.addEventListener('drop', async (e) => {
       e.preventDefault();
       e.stopPropagation();
       dropZone.classList.remove('drag-over');
@@ -245,7 +246,7 @@
       const pdfFile = files.find(file => file.path.toLowerCase().endsWith('.pdf'));
 
       if (pdfFile) {
-        openPDFViewer(pdfFile.path);
+        await openPDFViewer(pdfFile.path);
       }
     });
 
@@ -258,10 +259,10 @@
       e.preventDefault();
     });
 
-    // Open PDF in viewer
-    function openPDFViewer(filePath) {
+    // Open PDF in viewer (in new window)
+    async function openPDFViewer(filePath) {
       saveToRecentFiles(filePath);
-      window.location.href = `viewer.html?file=${encodeURIComponent(filePath)}`;
+      await ipcRenderer.invoke('open-pdf-in-new-window', filePath);
     }
 
     // Save to recent files
