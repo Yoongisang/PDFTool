@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 
 let mainWindow;
+let filePath = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -19,7 +20,20 @@ function createWindow() {
     show: false
   });
 
-  mainWindow.loadFile('index.html');
+  // Check if a file was passed as command-line argument
+  const args = process.argv.slice(process.defaultApp ? 2 : 1);
+  const pdfArg = args.find(arg => arg.toLowerCase().endsWith('.pdf'));
+
+  if (pdfArg && fs.existsSync(pdfArg)) {
+    // Open PDF viewer directly
+    filePath = path.resolve(pdfArg);
+    mainWindow.loadFile('viewer.html', {
+      query: { file: encodeURIComponent(filePath) }
+    });
+  } else {
+    // Open main screen
+    mainWindow.loadFile('index.html');
+  }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -205,3 +219,39 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// Handle file open events (macOS)
+app.on('open-file', (event, path) => {
+  event.preventDefault();
+  filePath = path;
+
+  if (mainWindow) {
+    mainWindow.loadFile('viewer.html', {
+      query: { file: encodeURIComponent(path) }
+    });
+  }
+});
+
+// Handle second instance (Windows)
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, focus our window instead
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+
+      // Check if a PDF file was passed
+      const pdfArg = commandLine.find(arg => arg.toLowerCase().endsWith('.pdf'));
+      if (pdfArg && fs.existsSync(pdfArg)) {
+        const pdfPath = path.resolve(pdfArg);
+        mainWindow.loadFile('viewer.html', {
+          query: { file: encodeURIComponent(pdfPath) }
+        });
+      }
+    }
+  });
+}
