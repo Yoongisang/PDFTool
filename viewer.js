@@ -2,6 +2,7 @@ const { ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const { PDFDocument } = require('pdf-lib');
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.js');
@@ -18,6 +19,7 @@ let isHighlightMode = false;
 let selectedColor = '#FFFF00';
 let selectionStart = null;
 let currentHighlightId = null;
+let mergeFiles = [];
 
 // DOM elements
 const canvas = document.getElementById('pdfCanvas');
@@ -46,6 +48,21 @@ const noteText = document.getElementById('noteText');
 const noteSave = document.getElementById('noteSave');
 const noteCancel = document.getElementById('noteCancel');
 
+const mergeModal = document.getElementById('mergeModal');
+const mergeButton = document.getElementById('mergeButton');
+const selectMergeFiles = document.getElementById('selectMergeFiles');
+const mergeFileList = document.getElementById('mergeFileList');
+const mergeExecute = document.getElementById('mergeExecute');
+const mergeCancel = document.getElementById('mergeCancel');
+
+const splitModal = document.getElementById('splitModal');
+const splitButton = document.getElementById('splitButton');
+const splitStartPage = document.getElementById('splitStartPage');
+const splitEndPage = document.getElementById('splitEndPage');
+const splitInfo = document.getElementById('splitInfo');
+const splitExecute = document.getElementById('splitExecute');
+const splitCancel = document.getElementById('splitCancel');
+
 const thumbnailsContent = document.getElementById('thumbnailsContent');
 const bookmarksContent = document.getElementById('bookmarksContent');
 
@@ -54,6 +71,7 @@ function init() {
   // Get PDF file path from URL
   const urlParams = new URLSearchParams(window.location.search);
   pdfFilePath = urlParams.get('file');
+  const action = urlParams.get('action');
 
   if (!pdfFilePath) {
     alert('PDF 파일이 선택되지 않았습니다.');
@@ -62,7 +80,12 @@ function init() {
   }
 
   // Load PDF
-  loadPDF(pdfFilePath);
+  loadPDF(pdfFilePath).then(() => {
+    // Check if there's an action to perform
+    if (action === 'split') {
+      openSplitModal();
+    }
+  });
 
   // Event listeners
   setupEventListeners();
@@ -195,25 +218,106 @@ function setupEventListeners() {
       if (highlight) {
         highlight.note = noteText.value;
         saveHighlights();
-        noteModal.classList.remove('show');
-        noteText.value = '';
-        currentHighlightId = null;
+        closeNoteModal();
       }
     }
   });
 
   noteCancel.addEventListener('click', () => {
-    noteModal.classList.remove('show');
-    noteText.value = '';
-    currentHighlightId = null;
+    closeNoteModal();
   });
 
   // Close modal on background click
   noteModal.addEventListener('click', (e) => {
     if (e.target === noteModal) {
-      noteCancel.click();
+      closeNoteModal();
     }
   });
+
+  // Merge PDF
+  mergeButton.addEventListener('click', () => {
+    openMergeModal();
+  });
+
+  selectMergeFiles.addEventListener('click', async () => {
+    const files = await ipcRenderer.invoke('select-multiple-pdf-files');
+    if (files && files.length > 0) {
+      mergeFiles = files;
+      renderMergeFileList();
+    }
+  });
+
+  mergeExecute.addEventListener('click', async () => {
+    if (mergeFiles.length < 2) {
+      alert('최소 2개 이상의 PDF 파일을 선택해주세요.');
+      return;
+    }
+    await mergePDFs();
+  });
+
+  mergeCancel.addEventListener('click', () => {
+    closeMergeModal();
+  });
+
+  mergeModal.addEventListener('click', (e) => {
+    if (e.target === mergeModal) {
+      closeMergeModal();
+    }
+  });
+
+  // Split PDF
+  splitButton.addEventListener('click', () => {
+    if (!pdfDocument) {
+      alert('PDF 파일을 먼저 열어주세요.');
+      return;
+    }
+    openSplitModal();
+  });
+
+  splitStartPage.addEventListener('input', updateSplitInfo);
+  splitEndPage.addEventListener('input', updateSplitInfo);
+
+  splitExecute.addEventListener('click', async () => {
+    const start = parseInt(splitStartPage.value);
+    const end = parseInt(splitEndPage.value);
+
+    if (start < 1 || end > totalPages || start > end) {
+      alert('올바른 페이지 범위를 입력해주세요.');
+      return;
+    }
+
+    await splitPDF(start, end);
+  });
+
+  splitCancel.addEventListener('click', () => {
+    closeSplitModal();
+  });
+
+  splitModal.addEventListener('click', (e) => {
+    if (e.target === splitModal) {
+      closeSplitModal();
+    }
+  });
+}
+
+// Open note modal
+function openNoteModal(highlightId) {
+  currentHighlightId = highlightId;
+  noteText.value = '';
+  noteText.disabled = false;
+  noteModal.classList.add('show');
+  // Use setTimeout to ensure modal is visible before focusing
+  setTimeout(() => {
+    noteText.focus();
+  }, 100);
+}
+
+// Close note modal
+function closeNoteModal() {
+  noteModal.classList.remove('show');
+  noteText.value = '';
+  noteText.disabled = false;
+  currentHighlightId = null;
 }
 
 // Load PDF
@@ -428,9 +532,7 @@ function onMouseUp(e) {
     renderHighlights();
 
     // Ask for note
-    currentHighlightId = highlight.id;
-    noteModal.classList.add('show');
-    noteText.focus();
+    openNoteModal(highlight.id);
   }
 
   selectionStart = null;
@@ -466,6 +568,7 @@ function renderHighlights() {
     // Delete on right click
     div.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      hideTooltip(); // Hide tooltip before showing confirm dialog
       if (confirm('이 하이라이트를 삭제하시겠습니까?')) {
         highlights = highlights.filter(h => h.id !== highlight.id);
         saveHighlights();
@@ -657,6 +760,151 @@ ipcRenderer.on('get-user-data-path', (event) => {
   event.returnValue = require('electron').remote?.app?.getPath('userData') ||
                       path.join(require('os').homedir(), '.study-pdf-viewer');
 });
+
+// Merge PDF functions
+function openMergeModal() {
+  mergeFiles = [];
+  mergeFileList.innerHTML = '';
+  mergeModal.classList.add('show');
+}
+
+function closeMergeModal() {
+  mergeModal.classList.remove('show');
+  mergeFiles = [];
+  mergeFileList.innerHTML = '';
+}
+
+function renderMergeFileList() {
+  mergeFileList.innerHTML = '';
+
+  if (mergeFiles.length === 0) {
+    mergeFileList.innerHTML = '<p style="color: #9aa0a6; font-size: 13px; text-align: center; padding: 20px;">파일을 선택해주세요</p>';
+    return;
+  }
+
+  mergeFiles.forEach((filePath, index) => {
+    const item = document.createElement('div');
+    item.style.cssText = 'background-color: #202124; padding: 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;';
+
+    const fileName = document.createElement('span');
+    fileName.style.cssText = 'font-size: 13px; color: #e8eaed; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+    fileName.textContent = `${index + 1}. ${path.basename(filePath)}`;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.style.cssText = 'background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: 16px; padding: 4px;';
+    removeBtn.textContent = '×';
+    removeBtn.addEventListener('click', () => {
+      mergeFiles.splice(index, 1);
+      renderMergeFileList();
+    });
+
+    item.appendChild(fileName);
+    item.appendChild(removeBtn);
+    mergeFileList.appendChild(item);
+  });
+}
+
+async function mergePDFs() {
+  try {
+    // Show progress
+    mergeExecute.disabled = true;
+    mergeExecute.textContent = '병합 중...';
+
+    // Create new PDF document
+    const mergedPdf = await PDFDocument.create();
+
+    // Copy pages from each PDF
+    for (const filePath of mergeFiles) {
+      const pdfBytes = fs.readFileSync(filePath);
+      const pdf = await PDFDocument.load(pdfBytes);
+      const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      pages.forEach(page => mergedPdf.addPage(page));
+    }
+
+    // Save merged PDF
+    const mergedPdfBytes = await mergedPdf.save();
+
+    // Ask user where to save
+    const savePath = await ipcRenderer.invoke('save-pdf-file', 'merged.pdf');
+
+    if (savePath) {
+      fs.writeFileSync(savePath, mergedPdfBytes);
+      alert(`PDF 병합이 완료되었습니다!\n저장 위치: ${savePath}`);
+      closeMergeModal();
+    }
+  } catch (error) {
+    console.error('Error merging PDFs:', error);
+    alert('PDF 병합 중 오류가 발생했습니다: ' + error.message);
+  } finally {
+    mergeExecute.disabled = false;
+    mergeExecute.textContent = '병합 실행';
+  }
+}
+
+// Split PDF functions
+function openSplitModal() {
+  splitStartPage.value = 1;
+  splitEndPage.value = totalPages;
+  splitEndPage.max = totalPages;
+  splitStartPage.max = totalPages;
+  updateSplitInfo();
+  splitModal.classList.add('show');
+}
+
+function closeSplitModal() {
+  splitModal.classList.remove('show');
+}
+
+function updateSplitInfo() {
+  const start = parseInt(splitStartPage.value) || 1;
+  const end = parseInt(splitEndPage.value) || 1;
+  const count = Math.max(0, end - start + 1);
+  splitInfo.textContent = `${count}개의 페이지가 추출됩니다 (전체 ${totalPages}페이지)`;
+}
+
+async function splitPDF(startPage, endPage) {
+  try {
+    // Show progress
+    splitExecute.disabled = true;
+    splitExecute.textContent = '분할 중...';
+
+    // Load current PDF
+    const pdfBytes = fs.readFileSync(pdfFilePath);
+    const pdf = await PDFDocument.load(pdfBytes);
+
+    // Create new PDF with selected pages
+    const newPdf = await PDFDocument.create();
+    const pageIndices = [];
+    for (let i = startPage - 1; i < endPage; i++) {
+      pageIndices.push(i);
+    }
+
+    const pages = await newPdf.copyPages(pdf, pageIndices);
+    pages.forEach(page => newPdf.addPage(page));
+
+    // Save split PDF
+    const newPdfBytes = await newPdf.save();
+
+    // Suggest filename
+    const originalName = path.basename(pdfFilePath, '.pdf');
+    const suggestedName = `${originalName}_pages_${startPage}-${endPage}.pdf`;
+
+    // Ask user where to save
+    const savePath = await ipcRenderer.invoke('save-pdf-file', suggestedName);
+
+    if (savePath) {
+      fs.writeFileSync(savePath, newPdfBytes);
+      alert(`PDF 분할이 완료되었습니다!\n저장 위치: ${savePath}`);
+      closeSplitModal();
+    }
+  } catch (error) {
+    console.error('Error splitting PDF:', error);
+    alert('PDF 분할 중 오류가 발생했습니다: ' + error.message);
+  } finally {
+    splitExecute.disabled = false;
+    splitExecute.textContent = '분할 실행';
+  }
+}
 
 // Initialize app
 init();

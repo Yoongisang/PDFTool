@@ -177,15 +177,50 @@
     });
 
     // Merge PDFs
-    mergeButton.addEventListener('click', () => {
-      // This will be implemented in viewer.html
-      alert('PDF 병합 기능은 곧 추가될 예정입니다.');
+    mergeButton.addEventListener('click', async () => {
+      const { PDFDocument } = require('pdf-lib');
+
+      try {
+        const files = await ipcRenderer.invoke('select-multiple-pdf-files');
+        if (!files || files.length < 2) {
+          alert('최소 2개 이상의 PDF 파일을 선택해주세요.');
+          return;
+        }
+
+        // Create new PDF document
+        const mergedPdf = await PDFDocument.create();
+
+        // Copy pages from each PDF
+        for (const filePath of files) {
+          const pdfBytes = require('fs').readFileSync(filePath);
+          const pdf = await PDFDocument.load(pdfBytes);
+          const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+          pages.forEach(page => mergedPdf.addPage(page));
+        }
+
+        // Save merged PDF
+        const mergedPdfBytes = await mergedPdf.save();
+
+        // Ask user where to save
+        const savePath = await ipcRenderer.invoke('save-pdf-file', 'merged.pdf');
+
+        if (savePath) {
+          require('fs').writeFileSync(savePath, mergedPdfBytes);
+          alert(`PDF 병합이 완료되었습니다!\n저장 위치: ${savePath}`);
+        }
+      } catch (error) {
+        console.error('Error merging PDFs:', error);
+        alert('PDF 병합 중 오류가 발생했습니다: ' + error.message);
+      }
     });
 
     // Split PDF
-    splitButton.addEventListener('click', () => {
-      // This will be implemented in viewer.html
-      alert('PDF 분할 기능은 곧 추가될 예정입니다.');
+    splitButton.addEventListener('click', async () => {
+      const filePath = await ipcRenderer.invoke('select-pdf-file');
+      if (filePath) {
+        // Open in viewer with split modal
+        window.location.href = `viewer.html?file=${encodeURIComponent(filePath)}&action=split`;
+      }
     });
 
     // Drag and drop
