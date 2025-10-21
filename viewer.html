@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Viewer</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #525659;
+      color: #e8eaed;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Toolbar */
+    .toolbar {
+      background-color: #323639;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 8px;
+      border-bottom: 1px solid #202124;
+      flex-shrink: 0;
+    }
+
+    .toolbar-button {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      background-color: transparent;
+      color: #e8eaed;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s;
+      font-size: 18px;
+    }
+
+    .toolbar-button:hover {
+      background-color: #5f6368;
+    }
+
+    .toolbar-button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .toolbar-separator {
+      width: 1px;
+      height: 24px;
+      background-color: #5f6368;
+      margin: 0 4px;
+    }
+
+    .page-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .page-input {
+      width: 50px;
+      background-color: #202124;
+      border: 1px solid #5f6368;
+      color: #e8eaed;
+      padding: 4px 8px;
+      border-radius: 4px;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .page-total {
+      font-size: 13px;
+      color: #9aa0a6;
+    }
+
+    .zoom-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .zoom-level {
+      font-size: 13px;
+      color: #9aa0a6;
+      min-width: 50px;
+      text-align: center;
+    }
+
+    .spacer {
+      flex: 1;
+    }
+
+    .highlight-button {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: none;
+      background-color: transparent;
+      color: #e8eaed;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background-color 0.2s;
+    }
+
+    .highlight-button:hover {
+      background-color: #5f6368;
+    }
+
+    .highlight-button.active {
+      background-color: #8ab4f8;
+      color: #202124;
+    }
+
+    .color-picker {
+      display: flex;
+      gap: 4px;
+      margin-left: 8px;
+    }
+
+    .color-button {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .color-button:hover {
+      transform: scale(1.1);
+    }
+
+    .color-button.selected {
+      border-color: #e8eaed;
+      box-shadow: 0 0 0 2px #323639, 0 0 0 4px #e8eaed;
+    }
+
+    /* Main content */
+    .main-content {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background-color: #323639;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid #202124;
+      flex-shrink: 0;
+    }
+
+    .sidebar-tabs {
+      display: flex;
+      border-bottom: 1px solid #202124;
+    }
+
+    .sidebar-tab {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      background-color: transparent;
+      color: #9aa0a6;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+      border-bottom: 2px solid transparent;
+    }
+
+    .sidebar-tab:hover {
+      background-color: #5f6368;
+      color: #e8eaed;
+    }
+
+    .sidebar-tab.active {
+      color: #8ab4f8;
+      border-bottom-color: #8ab4f8;
+    }
+
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .thumbnail-item {
+      margin-bottom: 8px;
+      cursor: pointer;
+      border: 2px solid transparent;
+      border-radius: 4px;
+      overflow: hidden;
+      transition: all 0.2s;
+    }
+
+    .thumbnail-item:hover {
+      border-color: #5f6368;
+    }
+
+    .thumbnail-item.active {
+      border-color: #8ab4f8;
+    }
+
+    .thumbnail-canvas {
+      width: 100%;
+      display: block;
+      background-color: white;
+    }
+
+    .thumbnail-page-num {
+      text-align: center;
+      font-size: 11px;
+      color: #9aa0a6;
+      padding: 4px;
+      background-color: #202124;
+    }
+
+    .bookmark-item {
+      background-color: #202124;
+      padding: 12px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .bookmark-item:hover {
+      background-color: #5f6368;
+    }
+
+    .bookmark-page {
+      font-size: 13px;
+      color: #e8eaed;
+    }
+
+    .bookmark-delete {
+      background: none;
+      border: none;
+      color: #9aa0a6;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .bookmark-delete:hover {
+      color: #f28b82;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #9aa0a6;
+      font-size: 13px;
+      padding: 40px 20px;
+    }
+
+    /* Viewer area */
+    .viewer-container {
+      flex: 1;
+      overflow: auto;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      position: relative;
+    }
+
+    .pdf-canvas-wrapper {
+      position: relative;
+      background-color: white;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    #pdfCanvas {
+      display: block;
+    }
+
+    .highlight-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+    }
+
+    .highlight-rect {
+      position: absolute;
+      opacity: 0.4;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+
+    .highlight-rect:hover {
+      opacity: 0.6;
+    }
+
+    .selection-rect {
+      position: absolute;
+      border: 2px dashed #8ab4f8;
+      background-color: rgba(138, 180, 248, 0.2);
+      pointer-events: none;
+    }
+
+    /* Loading */
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .spinner {
+      border: 3px solid #5f6368;
+      border-top-color: #8ab4f8;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Note modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-content {
+      background-color: #323639;
+      padding: 24px;
+      border-radius: 8px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      font-size: 18px;
+      margin-bottom: 16px;
+      color: #e8eaed;
+    }
+
+    .modal-body {
+      margin-bottom: 16px;
+    }
+
+    .modal-textarea {
+      width: 100%;
+      min-height: 150px;
+      background-color: #202124;
+      border: 1px solid #5f6368;
+      color: #e8eaed;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .modal-button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+
+    .modal-button-primary {
+      background-color: #8ab4f8;
+      color: #202124;
+    }
+
+    .modal-button-primary:hover {
+      background-color: #aac9ff;
+    }
+
+    .modal-button-secondary {
+      background-color: transparent;
+      color: #8ab4f8;
+      border: 1px solid #5f6368;
+    }
+
+    .modal-button-secondary:hover {
+      background-color: #5f6368;
+    }
+
+    /* Tooltip */
+    .tooltip {
+      position: absolute;
+      background-color: #202124;
+      color: #e8eaed;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      max-width: 300px;
+      word-wrap: break-word;
+      z-index: 999;
+      pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #202124;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #5f6368;
+      border-radius: 6px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #6f7579;
+    }
+  </style>
+</head>
+<body>
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="toolbar-button" id="backButton" title="뒤로 가기">←</button>
+    <div class="toolbar-separator"></div>
+
+    <div class="page-controls">
+      <button class="toolbar-button" id="prevPage" title="이전 페이지">‹</button>
+      <input type="number" class="page-input" id="pageNum" value="1" min="1">
+      <span class="page-total">/ <span id="pageCount">0</span></span>
+      <button class="toolbar-button" id="nextPage" title="다음 페이지">›</button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <div class="zoom-controls">
+      <button class="toolbar-button" id="zoomOut" title="축소">-</button>
+      <span class="zoom-level" id="zoomLevel">100%</span>
+      <button class="toolbar-button" id="zoomIn" title="확대">+</button>
+    </div>
+
+    <div class="spacer"></div>
+
+    <button class="highlight-button" id="highlightMode" title="하이라이트 모드">
+      ✎ 하이라이트
+    </button>
+
+    <div class="color-picker" id="colorPicker" style="display: none;">
+      <button class="color-button selected" data-color="#FFFF00" style="background-color: #FFFF00;" title="Yellow"></button>
+      <button class="color-button" data-color="#FFD700" style="background-color: #FFD700;" title="Gold"></button>
+      <button class="color-button" data-color="#90EE90" style="background-color: #90EE90;" title="Green"></button>
+      <button class="color-button" data-color="#87CEEB" style="background-color: #87CEEB;" title="Blue"></button>
+      <button class="color-button" data-color="#FFB6C1" style="background-color: #FFB6C1;" title="Pink"></button>
+    </div>
+
+    <div class="toolbar-separator"></div>
+
+    <button class="toolbar-button" id="bookmarkToggle" title="책갈피 추가/제거">★</button>
+  </div>
+
+  <!-- Main content -->
+  <div class="main-content">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="thumbnails">썸네일</button>
+        <button class="sidebar-tab" data-tab="bookmarks">책갈피</button>
+      </div>
+      <div class="sidebar-content">
+        <div id="thumbnailsContent"></div>
+        <div id="bookmarksContent" style="display: none;"></div>
+      </div>
+    </div>
+
+    <!-- Viewer -->
+    <div class="viewer-container" id="viewerContainer">
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div>로딩중...</div>
+      </div>
+      <div class="pdf-canvas-wrapper" id="canvasWrapper" style="display: none;">
+        <canvas id="pdfCanvas"></canvas>
+        <div class="highlight-layer" id="highlightLayer"></div>
+        <div class="selection-rect" id="selectionRect" style="display: none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Note Modal -->
+  <div class="modal" id="noteModal">
+    <div class="modal-content">
+      <div class="modal-header">메모 추가</div>
+      <div class="modal-body">
+        <textarea class="modal-textarea" id="noteText" placeholder="메모를 입력하세요 (최대 1000자)" maxlength="1000"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button modal-button-secondary" id="noteCancel">취소</button>
+        <button class="modal-button modal-button-primary" id="noteSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="viewer.js"></script>
+</body>
+</html>

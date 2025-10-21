@@ -1,0 +1,56 @@
+{
+  "name": "study-pdf-viewer",
+  "version": "1.0.0",
+  "description": "A simple and elegant PDF viewer for students and researchers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "pdf",
+    "viewer",
+    "study",
+    "highlight",
+    "notes"
+  ],
+  "author": "Study PDF Viewer Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^3.11.174",
+    "pdf-lib": "^1.17.1"
+  },
+  "build": {
+    "appId": "com.studypdfviewer.app",
+    "productName": "Study PDF Viewer",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/*.md",
+      "!dist",
+      "!build"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon.png",
+      "category": "Office"
+    }
+  }
+}
