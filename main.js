@@ -1,6 +1,23 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { createWorker } = require('tesseract.js');
+
+// OCR worker singleton (lives in main process — renderer doesn't support worker_threads)
+let ocrWorker = null;
+
+async function getOCRWorker(win) {
+  if (!ocrWorker) {
+    ocrWorker = await createWorker(['kor', 'eng'], 1, {
+      logger: (m) => {
+        if (win && !win.isDestroyed()) {
+          win.webContents.send('ocr-progress', m);
+        }
+      }
+    });
+  }
+  return ocrWorker;
+}
 
 let mainWindow;
 
@@ -180,6 +197,19 @@ ipcMain.handle('write-file', async (event, filePath, data) => {
   } catch (error) {
     console.error('Error writing file:', error);
     return false;
+  }
+});
+
+// OCR via main process (renderer's V8 doesn't support worker_threads)
+ipcMain.handle('perform-ocr', async (event, imageDataUrl) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  try {
+    const worker = await getOCRWorker(win);
+    const { data: { text } } = await worker.recognize(imageDataUrl);
+    return { success: true, text: text.trim() };
+  } catch (err) {
+    console.error('OCR error in main:', err);
+    return { success: false, error: err.message };
   }
 });
 

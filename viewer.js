@@ -3,8 +3,6 @@ const path = require('path');
 const fs = require('fs');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const { PDFDocument } = require('pdf-lib');
-const { createWorker } = require('tesseract.js');
-
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.js');
 
@@ -17,8 +15,6 @@ let pdfFilePath = null;
 let highlights = [];
 let bookmarks = [];
 let isHighlightMode = false;
-let isOCRMode = false;
-let ocrWorker = null;
 let selectedColor = '#FFFF00';
 let selectionStart = null;
 let currentHighlightId = null;
@@ -76,7 +72,6 @@ const splitInfo = document.getElementById('splitInfo');
 const splitExecute = document.getElementById('splitExecute');
 const splitCancel = document.getElementById('splitCancel');
 
-const ocrModeBtn = document.getElementById('ocrMode');
 const ocrModal = document.getElementById('ocrModal');
 const ocrLoading = document.getElementById('ocrLoading');
 const ocrResult = document.getElementById('ocrResult');
@@ -210,39 +205,11 @@ function setupEventListeners() {
   highlightModeBtn.addEventListener('click', () => {
     isHighlightMode = !isHighlightMode;
     if (isHighlightMode) {
-      // Deactivate OCR mode if active
-      if (isOCRMode) {
-        isOCRMode = false;
-        ocrModeBtn.classList.remove('active');
-        selectionRect.classList.remove('ocr-mode');
-      }
       highlightModeBtn.classList.add('active');
       colorPicker.style.display = 'flex';
-      canvas.style.cursor = 'crosshair';
     } else {
       highlightModeBtn.classList.remove('active');
       colorPicker.style.display = 'none';
-      canvas.style.cursor = 'default';
-    }
-  });
-
-  // OCR mode
-  ocrModeBtn.addEventListener('click', () => {
-    isOCRMode = !isOCRMode;
-    if (isOCRMode) {
-      // Deactivate highlight mode if active
-      if (isHighlightMode) {
-        isHighlightMode = false;
-        highlightModeBtn.classList.remove('active');
-        colorPicker.style.display = 'none';
-      }
-      ocrModeBtn.classList.add('active');
-      selectionRect.classList.add('ocr-mode');
-      canvas.style.cursor = 'crosshair';
-    } else {
-      ocrModeBtn.classList.remove('active');
-      selectionRect.classList.remove('ocr-mode');
-      canvas.style.cursor = 'default';
     }
   });
 
@@ -417,31 +384,22 @@ function closeNoteModal() {
 
 // ── OCR ─────────────────────────────────────────────
 
-// Lazy-initialize Tesseract worker (kor + eng)
-async function getOCRWorker() {
-  if (!ocrWorker) {
+// Receive progress updates from main process OCR worker
+ipcRenderer.on('ocr-progress', (event, m) => {
+  if (m.status === 'loading tesseract core') {
     ocrProgressText.textContent = '핵심 모듈 로드 중...';
-    ocrHintText.style.display = 'block';
-    ocrWorker = await createWorker(['kor', 'eng'], 1, {
-      logger: (m) => {
-        if (m.status === 'loading tesseract core') {
-          ocrProgressText.textContent = '핵심 모듈 로드 중...';
-        } else if (m.status === 'loading language traineddata') {
-          ocrProgressText.textContent = '언어 데이터 다운로드 중...';
-        } else if (m.status === 'initializing api') {
-          ocrProgressText.textContent = 'OCR 엔진 초기화 중...';
-          ocrHintText.style.display = 'none';
-        } else if (m.status === 'recognizing text') {
-          const pct = Math.round(m.progress * 100);
-          ocrProgressText.textContent = `텍스트 인식 중... ${pct}%`;
-        }
-      }
-    });
+  } else if (m.status === 'loading language traineddata') {
+    ocrProgressText.textContent = '언어 데이터 다운로드 중...';
+  } else if (m.status === 'initializing api') {
+    ocrProgressText.textContent = 'OCR 엔진 초기화 중...';
+    ocrHintText.style.display = 'none';
+  } else if (m.status === 'recognizing text') {
+    const pct = Math.round(m.progress * 100);
+    ocrProgressText.textContent = `텍스트 인식 중... ${pct}%`;
   }
-  return ocrWorker;
-}
+});
 
-// Perform OCR on a canvas sub-region (canvas pixel coords)
+// Perform OCR on a canvas sub-region — delegates to main process via IPC
 async function performOCR(x, y, width, height) {
   // Show modal in loading state
   ocrLoading.style.display = 'block';
@@ -456,19 +414,21 @@ async function performOCR(x, y, width, height) {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = width;
     tempCanvas.height = height;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+    tempCanvas.getContext('2d').drawImage(canvas, x, y, width, height, 0, 0, width, height);
     const imageDataUrl = tempCanvas.toDataURL('image/png');
 
-    // Get (or init) worker and recognize
-    const worker = await getOCRWorker();
-    const { data: { text } } = await worker.recognize(imageDataUrl);
+    // Delegate to main process (renderer doesn't support worker_threads)
+    const result = await ipcRenderer.invoke('perform-ocr', imageDataUrl);
 
-    // Show result
     ocrLoading.style.display = 'none';
     ocrResult.style.display = 'block';
-    ocrText.value = text.trim() || '(인식된 텍스트 없음)';
-    ocrCopy.style.display = text.trim() ? 'inline-block' : 'none';
+    if (result.success) {
+      ocrText.value = result.text || '(인식된 텍스트 없음)';
+      ocrCopy.style.display = result.text ? 'inline-block' : 'none';
+    } else {
+      ocrText.value = 'OCR 처리 중 오류가 발생했습니다.\n' + result.error;
+      ocrCopy.style.display = 'none';
+    }
   } catch (err) {
     console.error('OCR error:', err);
     ocrLoading.style.display = 'none';
@@ -660,13 +620,20 @@ function updateThumbnailSelection() {
 
 // Highlight / OCR drag system
 function onMouseDown(e) {
-  if (!isHighlightMode && !isOCRMode) return;
+  if (!pdfDocument) return;
 
   const rect = canvas.getBoundingClientRect();
   selectionStart = {
     x: e.clientX - rect.left,
     y: e.clientY - rect.top
   };
+
+  // Green rect for OCR (default), blue rect for highlight mode
+  if (isHighlightMode) {
+    selectionRect.classList.remove('ocr-mode');
+  } else {
+    selectionRect.classList.add('ocr-mode');
+  }
 
   selectionRect.style.left = selectionStart.x + 'px';
   selectionRect.style.top = selectionStart.y + 'px';
@@ -676,7 +643,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
+  if (!selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const currentX = e.clientX - rect.left;
@@ -701,7 +668,7 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
-  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
+  if (!selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const endX = e.clientX - rect.left;
@@ -712,12 +679,7 @@ function onMouseUp(e) {
   const width = Math.abs(endX - selectionStart.x);
   const height = Math.abs(endY - selectionStart.y);
 
-  if (isOCRMode) {
-    // OCR: capture canvas region and recognize text
-    if (width >= 10 && height >= 10) {
-      performOCR(x, y, width, height);
-    }
-  } else if (isHighlightMode) {
+  if (isHighlightMode) {
     // Highlight: store as ratio coords
     if (width >= 5 && height >= 5) {
       const highlight = {
@@ -737,6 +699,11 @@ function onMouseUp(e) {
       saveHighlights();
       renderHighlights();
       openNoteModal(highlight.id);
+    }
+  } else {
+    // Default: OCR — capture canvas region and recognize text
+    if (width >= 10 && height >= 10) {
+      performOCR(x, y, width, height);
     }
   }
 
