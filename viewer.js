@@ -53,6 +53,11 @@ const noteText = document.getElementById('noteText');
 const noteSave = document.getElementById('noteSave');
 const noteCancel = document.getElementById('noteCancel');
 
+const confirmModal = document.getElementById('confirmModal');
+const confirmMessage = document.getElementById('confirmMessage');
+const confirmOk = document.getElementById('confirmOk');
+const confirmCancel = document.getElementById('confirmCancel');
+
 const mergeModal = document.getElementById('mergeModal');
 const mergeButton = document.getElementById('mergeButton');
 const selectMergeFiles = document.getElementById('selectMergeFiles');
@@ -163,6 +168,12 @@ function setupEventListeners() {
 
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
+    if (noteModal.classList.contains('show') ||
+        mergeModal.classList.contains('show') ||
+        splitModal.classList.contains('show') ||
+        confirmModal.classList.contains('show')) {
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
@@ -241,6 +252,7 @@ function setupEventListeners() {
       if (highlight) {
         highlight.note = noteText.value;
         saveHighlights();
+        renderHighlights();
         closeNoteModal();
       }
     }
@@ -341,6 +353,37 @@ function closeNoteModal() {
   noteText.value = '';
   noteText.disabled = false;
   currentHighlightId = null;
+}
+
+// Show custom confirm modal (replaces window.confirm to avoid focus issues)
+function showConfirmModal(message) {
+  return new Promise(resolve => {
+    confirmMessage.textContent = message;
+    confirmModal.classList.add('show');
+
+    function onOk() {
+      confirmModal.classList.remove('show');
+      cleanup();
+      resolve(true);
+    }
+    function onCancel() {
+      confirmModal.classList.remove('show');
+      cleanup();
+      resolve(false);
+    }
+    function onBackdrop(e) {
+      if (e.target === confirmModal) onCancel();
+    }
+    function cleanup() {
+      confirmOk.removeEventListener('click', onOk);
+      confirmCancel.removeEventListener('click', onCancel);
+      confirmModal.removeEventListener('click', onBackdrop);
+    }
+
+    confirmOk.addEventListener('click', onOk);
+    confirmCancel.addEventListener('click', onCancel);
+    confirmModal.addEventListener('click', onBackdrop);
+  });
 }
 
 // Load PDF
@@ -592,10 +635,10 @@ function renderHighlights() {
     }
 
     // Delete on right click
-    div.addEventListener('contextmenu', (e) => {
+    div.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
-      hideTooltip(); // Hide tooltip before showing confirm dialog
-      if (confirm('이 하이라이트를 삭제하시겠습니까?')) {
+      hideTooltip();
+      if (await showConfirmModal('이 하이라이트를 삭제하시겠습니까?')) {
         highlights = highlights.filter(h => h.id !== highlight.id);
         saveHighlights();
         renderHighlights();
