@@ -292,7 +292,6 @@
 
     #pdfCanvas {
       display: block;
-      cursor: crosshair;
     }
 
     .highlight-layer {
@@ -323,6 +322,29 @@
     .selection-rect.ocr-mode {
       border-color: #81c995;
       background-color: rgba(129, 201, 149, 0.2);
+    }
+
+    /* PDF.js text layer — invisible but selectable text */
+    .textLayer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      overflow: hidden;
+      pointer-events: auto;
+      line-height: 1;
+    }
+
+    .textLayer span,
+    .textLayer br {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      cursor: text;
+      transform-origin: 0% 0%;
+    }
+
+    .textLayer ::selection {
+      background-color: rgba(138, 180, 248, 0.4);
     }
 
     .ocr-button {
@@ -575,6 +597,10 @@
 
     <div class="toolbar-separator"></div>
 
+    <button class="ocr-button" id="ocrMode" title="이미지 OCR 모드 (스캔된 PDF용)">📷 OCR</button>
+
+    <div class="toolbar-separator"></div>
+
     <button class="toolbar-button" id="bookmarkToggle" title="책갈피 추가/제거">★</button>
   </div>
 
@@ -602,6 +628,7 @@
         <canvas id="pdfCanvas"></canvas>
         <div class="highlight-layer" id="highlightLayer"></div>
         <div class="selection-rect" id="selectionRect" style="display: none;"></div>
+        <div class="textLayer" id="textLayer"></div>
       </div>
     </div>
   </div>
@@ -620,10 +647,10 @@
     </div>
   </div>
 
-  <!-- OCR Result Modal -->
+  <!-- Text / OCR Result Modal -->
   <div class="modal" id="ocrModal">
     <div class="modal-content" style="max-width: 600px;">
-      <div class="modal-header">OCR 텍스트 추출</div>
+      <div class="modal-header" id="ocrModalTitle">텍스트 추출</div>
       <div class="modal-body">
         <div id="ocrLoading" style="text-align: center; padding: 20px 0;">
           <div class="spinner"></div>

@@ -15,6 +15,7 @@ let pdfFilePath = null;
 let highlights = [];
 let bookmarks = [];
 let isHighlightMode = false;
+let isOCRMode = false;
 let selectedColor = '#FFFF00';
 let selectionStart = null;
 let currentHighlightId = null;
@@ -73,6 +74,7 @@ const splitExecute = document.getElementById('splitExecute');
 const splitCancel = document.getElementById('splitCancel');
 
 const ocrModal = document.getElementById('ocrModal');
+const ocrModalTitle = document.getElementById('ocrModalTitle');
 const ocrLoading = document.getElementById('ocrLoading');
 const ocrResult = document.getElementById('ocrResult');
 const ocrProgressText = document.getElementById('ocrProgressText');
@@ -80,6 +82,8 @@ const ocrHintText = document.getElementById('ocrHintText');
 const ocrText = document.getElementById('ocrText');
 const ocrClose = document.getElementById('ocrClose');
 const ocrCopy = document.getElementById('ocrCopy');
+const ocrModeBtn = document.getElementById('ocrMode');
+const textLayerDiv = document.getElementById('textLayer');
 
 const thumbnailsContent = document.getElementById('thumbnailsContent');
 const bookmarksContent = document.getElementById('bookmarksContent');
@@ -205,12 +209,56 @@ function setupEventListeners() {
   highlightModeBtn.addEventListener('click', () => {
     isHighlightMode = !isHighlightMode;
     if (isHighlightMode) {
+      // Deactivate OCR mode if active
+      if (isOCRMode) {
+        isOCRMode = false;
+        ocrModeBtn.classList.remove('active');
+      }
       highlightModeBtn.classList.add('active');
       colorPicker.style.display = 'flex';
+      // Disable text layer so canvas gets mouse events
+      textLayerDiv.style.pointerEvents = 'none';
     } else {
       highlightModeBtn.classList.remove('active');
       colorPicker.style.display = 'none';
+      // Re-enable text layer for text selection
+      textLayerDiv.style.pointerEvents = 'auto';
     }
+  });
+
+  // OCR mode (for scanned/image PDFs)
+  ocrModeBtn.addEventListener('click', () => {
+    isOCRMode = !isOCRMode;
+    if (isOCRMode) {
+      // Deactivate highlight mode if active
+      if (isHighlightMode) {
+        isHighlightMode = false;
+        highlightModeBtn.classList.remove('active');
+        colorPicker.style.display = 'none';
+      }
+      ocrModeBtn.classList.add('active');
+      selectionRect.classList.add('ocr-mode');
+      // Disable text layer so canvas gets mouse events
+      textLayerDiv.style.pointerEvents = 'none';
+    } else {
+      ocrModeBtn.classList.remove('active');
+      selectionRect.classList.remove('ocr-mode');
+      // Re-enable text layer
+      textLayerDiv.style.pointerEvents = 'auto';
+    }
+  });
+
+  // Text selection: capture selection on mouseup in text layer (default mode)
+  textLayerDiv.addEventListener('mouseup', () => {
+    if (isHighlightMode || isOCRMode) return;
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const text = sel ? sel.toString().trim() : '';
+      if (text) {
+        showTextResult(text);
+        sel.removeAllRanges();
+      }
+    }, 30);
   });
 
   // OCR modal: close button
@@ -382,6 +430,18 @@ function closeNoteModal() {
   currentHighlightId = null;
 }
 
+// ── Text selection result ────────────────────────────
+
+// Show selected text in the result modal (reuses OCR modal)
+function showTextResult(text) {
+  ocrModalTitle.textContent = '텍스트 선택';
+  ocrLoading.style.display = 'none';
+  ocrResult.style.display = 'block';
+  ocrText.value = text;
+  ocrCopy.style.display = 'inline-block';
+  ocrModal.classList.add('show');
+}
+
 // ── OCR ─────────────────────────────────────────────
 
 // Receive progress updates from main process OCR worker
@@ -401,6 +461,7 @@ ipcRenderer.on('ocr-progress', (event, m) => {
 
 // Perform OCR on a canvas sub-region — delegates to main process via IPC
 async function performOCR(x, y, width, height) {
+  ocrModalTitle.textContent = 'OCR 텍스트 추출';
   // Show modal in loading state
   ocrLoading.style.display = 'block';
   ocrResult.style.display = 'none';
@@ -533,6 +594,9 @@ async function renderPage(pageNum) {
 
     await page.render(renderContext).promise;
 
+    // Render text layer (for text-based PDFs — enables native text selection)
+    renderTextLayer(page, viewport);
+
     currentPage = pageNum;
     pageNumInput.value = pageNum;
     updateNavigationButtons();
@@ -564,6 +628,27 @@ function updateNavigationButtons() {
 function updateZoomLevel() {
   const percentage = Math.round(currentScale * 100);
   zoomLevelSpan.textContent = `${percentage}%`;
+}
+
+// Render PDF.js text layer for native text selection
+async function renderTextLayer(page, viewport) {
+  try {
+    const textContent = await page.getTextContent();
+    textLayerDiv.innerHTML = '';
+    textLayerDiv.style.width = viewport.width + 'px';
+    textLayerDiv.style.height = viewport.height + 'px';
+
+    const task = pdfjsLib.renderTextLayer({
+      textContent: textContent,
+      container: textLayerDiv,
+      viewport: viewport,
+      textDivs: [],
+    });
+    await task.promise;
+  } catch (err) {
+    // Text layer is optional — silently skip for image-only PDFs
+    console.warn('Text layer unavailable:', err.message);
+  }
 }
 
 // Generate thumbnails
@@ -618,9 +703,9 @@ function updateThumbnailSelection() {
   });
 }
 
-// Highlight / OCR drag system
+// Highlight / OCR drag system (only active in highlight or OCR mode)
 function onMouseDown(e) {
-  if (!pdfDocument) return;
+  if (!pdfDocument || (!isHighlightMode && !isOCRMode)) return;
 
   const rect = canvas.getBoundingClientRect();
   selectionStart = {
@@ -628,7 +713,7 @@ function onMouseDown(e) {
     y: e.clientY - rect.top
   };
 
-  // Green rect for OCR (default), blue rect for highlight mode
+  // Blue rect for highlight, green rect for OCR
   if (isHighlightMode) {
     selectionRect.classList.remove('ocr-mode');
   } else {
@@ -643,7 +728,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if (!selectionStart) return;
+  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const currentX = e.clientX - rect.left;
@@ -668,7 +753,7 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
-  if (!selectionStart) return;
+  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const endX = e.clientX - rect.left;
@@ -700,8 +785,8 @@ function onMouseUp(e) {
       renderHighlights();
       openNoteModal(highlight.id);
     }
-  } else {
-    // Default: OCR — capture canvas region and recognize text
+  } else if (isOCRMode) {
+    // OCR mode: capture canvas region and recognize text
     if (width >= 10 && height >= 10) {
       performOCR(x, y, width, height);
     }
