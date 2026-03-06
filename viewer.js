@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(__dirname, 'node_modules/pdfj
 let pdfDocument = null;
 let currentPage = 1;
 let totalPages = 0;
-let currentScale = 1.5;
+let currentScale = 1.0;
 let pdfFilePath = null;
 let highlights = [];
 let bookmarks = [];
@@ -124,7 +124,7 @@ function setupEventListeners() {
     }
   });
 
-  // Zoom
+  // Zoom buttons
   zoomInBtn.addEventListener('click', () => {
     if (currentScale < 3.0) {
       currentScale = Math.min(3.0, currentScale + 0.25);
@@ -140,6 +140,21 @@ function setupEventListeners() {
       updateZoomLevel();
     }
   });
+
+  // Ctrl+Wheel zoom
+  viewerContainer.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (e.deltaY < 0 && currentScale < 3.0) {
+      currentScale = Math.min(3.0, currentScale + 0.25);
+    } else if (e.deltaY > 0 && currentScale > 0.5) {
+      currentScale = Math.max(0.5, currentScale - 0.25);
+    } else {
+      return;
+    }
+    renderPage(currentPage);
+    updateZoomLevel();
+  }, { passive: false });
 
   // Handle open-pdf from main menu
   ipcRenderer.on('open-pdf', (event, filePath) => {
