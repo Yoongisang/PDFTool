@@ -25,7 +25,30 @@
       "Bash(gh pr:*)",
       "Bash(where gh)",
       "Bash(winget list --name \"GitHub CLI\")",
-      "Bash(git add README.md package.json)"
+      "Bash(git add README.md package.json)",
+      "Bash(npm install tesseract.js)",
+      "Bash(node -e \"const t = require\\(''tesseract.js''\\); console.log\\(''tesseract.js version:'', require\\(''./node_modules/tesseract.js/package.json''\\).version\\)\")",
+      "Bash(git add viewer.html viewer.js package.json package-lock.json)",
+      "Bash(git push origin HEAD)",
+      "Bash(curl -s http://localhost:9222/json)",
+      "Bash(node -e \"console.log\\(require.resolve\\(''tesseract.js/src/worker-script/node/index.js''\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d[0][''title''], d[0][''webSocketDebuggerUrl'']\\)\")",
+      "Bash(python3 -c \"import sys; print\\(sys.executable, sys.version\\)\")",
+      "Bash(pip3 install websocket-client)",
+      "Bash(/c/Users/sawsd/AppData/Local/Python/pythoncore-3.14-64/python.exe -c \"import websocket; print\\(''ok''\\)\")",
+      "Bash(/c/Users/sawsd/AppData/Local/Python/pythoncore-3.14-64/python.exe -:*)",
+      "Bash(python3 -c \"import websocket; print\\(''websocket-client available''\\)\")",
+      "Bash(pip install websocket-client)",
+      "Bash(python -c \"import websocket; print\\(''websocket-client available''\\)\")",
+      "Bash(/c/PDFTool/devtools_check.py:*)",
+      "Bash(python devtools_check.py)",
+      "Bash(/c/PDFTool/devtools_ocr2.py:*)",
+      "Bash(python /c/PDFTool/devtools_ocr2.py)",
+      "Bash(/c/PDFTool/devtools_ocr3.py:*)",
+      "Bash(python /c/PDFTool/devtools_ocr3.py)",
+      "Bash(git add main.js viewer.html viewer.js)",
+      "Bash(git add .claude/settings.local.json)",
+      "Bash(git push origin feature/Text-OCR)"
     ]
   }
 }
