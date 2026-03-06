@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout -b refactor/bug-fixes-and-cleanup)",
+      "Bash(git add index.html main.js viewer.html viewer.js)",
+      "Bash(git commit:*)",
+      "Bash(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls /c/PDFTool/node_modules/.bin/electron*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,'':'',v\\) for k,v in d.get\\(''scripts'',{}\\).items\\(\\)]\")",
+      "Bash(git add viewer.js index.html)",
+      "Bash(curl -s http://127.0.0.1:9222/json)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://127.0.0.1:9222/json/list\")",
+      "Bash(node -e \":*)",
+      "Bash(python3 -c \":*)",
+      "Bash(PAGE_ID=\"2B2CF42C01E4A1F0E2073DB604A6A86C\")",
+      "Bash(__NEW_LINE_baffdc9b1279bc85__ python3:*)",
+      "Bash(python -c \"import sys,json; pages=[p for p in json.load\\(sys.stdin\\) if p.get\\(''type''\\)==''page'']; print\\(pages[0][''webSocketDebuggerUrl''] if pages else ''NO_PAGE''\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(pip install websocket-client -q)",
+      "Bash(python -c \"import sys,json; pages=[p for p in json.load\\(sys.stdin\\) if p.get\\(''type''\\)==''page'']; print\\(pages[0][''url''] if pages else ''NO_PAGE''\\)\")",
+      "Bash(git add index.html viewer.html viewer.js .claude/launch.json)",
+      "Bash(git push origin refactor/bug-fixes-and-cleanup)",
+      "Bash(gh pr:*)",
+      "Bash(where gh)",
+      "Bash(winget list --name \"GitHub CLI\")",
+      "Bash(git add README.md package.json)"
+    ]
+  }
+}

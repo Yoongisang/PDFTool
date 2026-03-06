@@ -24,3 +24,4 @@ Thumbs.db
 
 # Electron
 out/
+.claude/settings.local.json

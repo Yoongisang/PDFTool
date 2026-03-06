@@ -11,7 +11,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(__dirname, 'node_modules/pdfj
 let pdfDocument = null;
 let currentPage = 1;
 let totalPages = 0;
-let currentScale = 1.5;
+let currentScale = 1.0;
 let pdfFilePath = null;
 let highlights = [];
 let bookmarks = [];
@@ -20,6 +20,11 @@ let selectedColor = '#FFFF00';
 let selectionStart = null;
 let currentHighlightId = null;
 let mergeFiles = [];
+
+// Helper: get user data path (sync)
+function getUserDataPath() {
+  return ipcRenderer.sendSync('get-user-data-path');
+}
 
 // DOM elements
 const canvas = document.getElementById('pdfCanvas');
@@ -47,6 +52,11 @@ const noteModal = document.getElementById('noteModal');
 const noteText = document.getElementById('noteText');
 const noteSave = document.getElementById('noteSave');
 const noteCancel = document.getElementById('noteCancel');
+
+const confirmModal = document.getElementById('confirmModal');
+const confirmMessage = document.getElementById('confirmMessage');
+const confirmOk = document.getElementById('confirmOk');
+const confirmCancel = document.getElementById('confirmCancel');
 
 const mergeModal = document.getElementById('mergeModal');
 const mergeButton = document.getElementById('mergeButton');
@@ -119,7 +129,7 @@ function setupEventListeners() {
     }
   });
 
-  // Zoom
+  // Zoom buttons
   zoomInBtn.addEventListener('click', () => {
     if (currentScale < 3.0) {
       currentScale = Math.min(3.0, currentScale + 0.25);
@@ -136,8 +146,34 @@ function setupEventListeners() {
     }
   });
 
+  // Ctrl+Wheel zoom
+  viewerContainer.addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    if (e.deltaY < 0 && currentScale < 3.0) {
+      currentScale = Math.min(3.0, currentScale + 0.25);
+    } else if (e.deltaY > 0 && currentScale > 0.5) {
+      currentScale = Math.max(0.5, currentScale - 0.25);
+    } else {
+      return;
+    }
+    renderPage(currentPage);
+    updateZoomLevel();
+  }, { passive: false });
+
+  // Handle open-pdf from main menu
+  ipcRenderer.on('open-pdf', (event, filePath) => {
+    window.location.href = `viewer.html?file=${encodeURIComponent(filePath)}`;
+  });
+
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
+    if (noteModal.classList.contains('show') ||
+        mergeModal.classList.contains('show') ||
+        splitModal.classList.contains('show') ||
+        confirmModal.classList.contains('show')) {
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       if (e.key === '=' || e.key === '+') {
         e.preventDefault();
@@ -145,10 +181,8 @@ function setupEventListeners() {
       } else if (e.key === '-') {
         e.preventDefault();
         zoomOutBtn.click();
-      } else if (e.key === 'o') {
-        e.preventDefault();
-        backButton.click();
       }
+      // Ctrl+O is handled by main process menu → 'open-pdf' IPC event
     } else if (e.key === 'ArrowLeft') {
       prevPageBtn.click();
     } else if (e.key === 'ArrowRight') {
@@ -218,6 +252,7 @@ function setupEventListeners() {
       if (highlight) {
         highlight.note = noteText.value;
         saveHighlights();
+        renderHighlights();
         closeNoteModal();
       }
     }
@@ -320,6 +355,37 @@ function closeNoteModal() {
   currentHighlightId = null;
 }
 
+// Show custom confirm modal (replaces window.confirm to avoid focus issues)
+function showConfirmModal(message) {
+  return new Promise(resolve => {
+    confirmMessage.textContent = message;
+    confirmModal.classList.add('show');
+
+    function onOk() {
+      confirmModal.classList.remove('show');
+      cleanup();
+      resolve(true);
+    }
+    function onCancel() {
+      confirmModal.classList.remove('show');
+      cleanup();
+      resolve(false);
+    }
+    function onBackdrop(e) {
+      if (e.target === confirmModal) onCancel();
+    }
+    function cleanup() {
+      confirmOk.removeEventListener('click', onOk);
+      confirmCancel.removeEventListener('click', onCancel);
+      confirmModal.removeEventListener('click', onBackdrop);
+    }
+
+    confirmOk.addEventListener('click', onOk);
+    confirmCancel.addEventListener('click', onCancel);
+    confirmModal.addEventListener('click', onBackdrop);
+  });
+}
+
 // Load PDF
 async function loadPDF(filePath) {
   try {
@@ -377,6 +443,7 @@ async function renderPage(pageNum) {
     currentPage = pageNum;
     pageNumInput.value = pageNum;
     updateNavigationButtons();
+    updateZoomLevel();
     updateThumbnailSelection();
     updateBookmarkButton();
     renderHighlights();
@@ -514,13 +581,14 @@ function onMouseUp(e) {
 
   // Minimum size check
   if (width >= 5 && height >= 5) {
+    // Store coordinates as ratios (0-1) so they scale correctly with zoom changes
     const highlight = {
       id: Date.now().toString(),
       page: currentPage,
-      x: x,
-      y: y,
-      width: width,
-      height: height,
+      xRatio: x / canvas.width,
+      yRatio: y / canvas.height,
+      widthRatio: width / canvas.width,
+      heightRatio: height / canvas.height,
       color: selectedColor,
       note: '',
       created: Date.now(),
@@ -548,10 +616,11 @@ function renderHighlights() {
   pageHighlights.forEach(highlight => {
     const div = document.createElement('div');
     div.className = 'highlight-rect';
-    div.style.left = highlight.x + 'px';
-    div.style.top = highlight.y + 'px';
-    div.style.width = highlight.width + 'px';
-    div.style.height = highlight.height + 'px';
+    // Convert stored ratios back to current canvas pixel coordinates
+    div.style.left = (highlight.xRatio * canvas.width) + 'px';
+    div.style.top = (highlight.yRatio * canvas.height) + 'px';
+    div.style.width = (highlight.widthRatio * canvas.width) + 'px';
+    div.style.height = (highlight.heightRatio * canvas.height) + 'px';
     div.style.backgroundColor = highlight.color;
 
     // Show note on hover
@@ -566,10 +635,10 @@ function renderHighlights() {
     }
 
     // Delete on right click
-    div.addEventListener('contextmenu', (e) => {
+    div.addEventListener('contextmenu', async (e) => {
       e.preventDefault();
-      hideTooltip(); // Hide tooltip before showing confirm dialog
-      if (confirm('이 하이라이트를 삭제하시겠습니까?')) {
+      hideTooltip();
+      if (await showConfirmModal('이 하이라이트를 삭제하시겠습니까?')) {
         highlights = highlights.filter(h => h.id !== highlight.id);
         saveHighlights();
         renderHighlights();
@@ -606,7 +675,7 @@ function hideTooltip() {
 // Save highlights
 function saveHighlights() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const highlightsDir = path.join(userDataPath, 'highlights');
 
     if (!fs.existsSync(highlightsDir)) {
@@ -630,7 +699,7 @@ function saveHighlights() {
 // Load highlights
 function loadHighlights() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const highlightsDir = path.join(userDataPath, 'highlights');
     const fileName = path.basename(pdfFilePath, '.pdf') + '.json';
     const filePath = path.join(highlightsDir, fileName);
@@ -715,7 +784,7 @@ function renderBookmarks() {
 
 function saveBookmarks() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const bookmarksDir = path.join(userDataPath, 'bookmarks');
 
     if (!fs.existsSync(bookmarksDir)) {
@@ -738,7 +807,7 @@ function saveBookmarks() {
 
 function loadBookmarks() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const bookmarksDir = path.join(userDataPath, 'bookmarks');
     const fileName = path.basename(pdfFilePath, '.pdf') + '.json';
     const filePath = path.join(bookmarksDir, fileName);
@@ -754,12 +823,6 @@ function loadBookmarks() {
     bookmarks = [];
   }
 }
-
-// Add synchronous IPC handler for get-user-data-path
-ipcRenderer.on('get-user-data-path', (event) => {
-  event.returnValue = require('electron').remote?.app?.getPath('userData') ||
-                      path.join(require('os').homedir(), '.study-pdf-viewer');
-});
 
 // Merge PDF functions
 function openMergeModal() {
@@ -784,14 +847,14 @@ function renderMergeFileList() {
 
   mergeFiles.forEach((filePath, index) => {
     const item = document.createElement('div');
-    item.style.cssText = 'background-color: #202124; padding: 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;';
+    item.className = 'merge-file-item';
 
     const fileName = document.createElement('span');
-    fileName.style.cssText = 'font-size: 13px; color: #e8eaed; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+    fileName.className = 'merge-file-name';
     fileName.textContent = `${index + 1}. ${path.basename(filePath)}`;
 
     const removeBtn = document.createElement('button');
-    removeBtn.style.cssText = 'background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: 16px; padding: 4px;';
+    removeBtn.className = 'merge-file-remove';
     removeBtn.textContent = '×';
     removeBtn.addEventListener('click', () => {
       mergeFiles.splice(index, 1);

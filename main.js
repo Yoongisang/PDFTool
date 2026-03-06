@@ -183,10 +183,6 @@ ipcMain.handle('write-file', async (event, filePath, data) => {
   }
 });
 
-ipcMain.handle('get-user-data-path', () => {
-  return app.getPath('userData');
-});
-
 // Synchronous IPC handler for get-user-data-path
 ipcMain.on('get-user-data-path', (event) => {
   event.returnValue = app.getPath('userData');

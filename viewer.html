@@ -71,7 +71,7 @@
     }
 
     .page-input {
-      width: 50px;
+      width: 70px;
       background-color: #202124;
       border: 1px solid #5f6368;
       color: #e8eaed;
@@ -79,6 +79,11 @@
       border-radius: 4px;
       text-align: center;
       font-size: 13px;
+    }
+
+    .page-input::-webkit-outer-spin-button,
+    .page-input::-webkit-inner-spin-button {
+      -webkit-appearance: none;
     }
 
     .page-total {
@@ -437,6 +442,39 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
+    /* Merge file list items */
+    .merge-file-item {
+      background-color: #202124;
+      padding: 12px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .merge-file-name {
+      font-size: 13px;
+      color: #e8eaed;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .merge-file-remove {
+      background: none;
+      border: none;
+      color: #9aa0a6;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .merge-file-remove:hover {
+      color: #f28b82;
+    }
+
     /* Scrollbar */
     ::-webkit-scrollbar {
       width: 12px;
@@ -540,6 +578,20 @@
       <div class="modal-footer">
         <button class="modal-button modal-button-secondary" id="noteCancel">취소</button>
         <button class="modal-button modal-button-primary" id="noteSave">저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Modal -->
+  <div class="modal" id="confirmModal">
+    <div class="modal-content" style="max-width: 360px;">
+      <div class="modal-header">삭제 확인</div>
+      <div class="modal-body">
+        <p id="confirmMessage" style="font-size: 14px; color: #9aa0a6;">이 하이라이트를 삭제하시겠습니까?</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-button modal-button-secondary" id="confirmCancel">취소</button>
+        <button class="modal-button modal-button-primary" id="confirmOk">확인</button>
       </div>
     </div>
   </div>
