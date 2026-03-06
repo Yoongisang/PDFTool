@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout -b refactor/bug-fixes-and-cleanup)",
+      "Bash(git add index.html main.js viewer.html viewer.js)",
+      "Bash(git commit:*)",
+      "Bash(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(ls /c/PDFTool/node_modules/.bin/electron*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,'':'',v\\) for k,v in d.get\\(''scripts'',{}\\).items\\(\\)]\")"
+    ]
+  }
+}
