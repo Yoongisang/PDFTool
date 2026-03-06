@@ -49,16 +49,18 @@ function createWindow(initialPdf) {
     show: false
   });
 
-  // If launched with a PDF file (e.g. "Open with"), go straight to the viewer
+  // If launched with a PDF file (e.g. "Open with"), show the window first so
+  // that the viewport dimensions are correct before viewer.html renders.
+  // (A hidden window can compute 100vh = 0, breaking the flex layout.)
   if (initialPdf) {
+    mainWindow.show();
     openPdfInWindow(mainWindow, initialPdf);
   } else {
     mainWindow.loadFile('index.html');
+    mainWindow.once('ready-to-show', () => {
+      mainWindow.show();
+    });
   }
-
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-  });
 
   // Create application menu
   const menuTemplate = [
