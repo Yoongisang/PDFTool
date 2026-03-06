@@ -437,6 +437,39 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
+    /* Merge file list items */
+    .merge-file-item {
+      background-color: #202124;
+      padding: 12px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .merge-file-name {
+      font-size: 13px;
+      color: #e8eaed;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .merge-file-remove {
+      background: none;
+      border: none;
+      color: #9aa0a6;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 4px;
+    }
+
+    .merge-file-remove:hover {
+      color: #f28b82;
+    }
+
     /* Scrollbar */
     ::-webkit-scrollbar {
       width: 12px;

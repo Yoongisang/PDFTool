@@ -21,6 +21,11 @@ let selectionStart = null;
 let currentHighlightId = null;
 let mergeFiles = [];
 
+// Helper: get user data path (sync)
+function getUserDataPath() {
+  return ipcRenderer.sendSync('get-user-data-path');
+}
+
 // DOM elements
 const canvas = document.getElementById('pdfCanvas');
 const ctx = canvas.getContext('2d');
@@ -136,6 +141,11 @@ function setupEventListeners() {
     }
   });
 
+  // Handle open-pdf from main menu
+  ipcRenderer.on('open-pdf', (event, filePath) => {
+    window.location.href = `viewer.html?file=${encodeURIComponent(filePath)}`;
+  });
+
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.ctrlKey || e.metaKey) {
@@ -145,10 +155,8 @@ function setupEventListeners() {
       } else if (e.key === '-') {
         e.preventDefault();
         zoomOutBtn.click();
-      } else if (e.key === 'o') {
-        e.preventDefault();
-        backButton.click();
       }
+      // Ctrl+O is handled by main process menu → 'open-pdf' IPC event
     } else if (e.key === 'ArrowLeft') {
       prevPageBtn.click();
     } else if (e.key === 'ArrowRight') {
@@ -377,6 +385,7 @@ async function renderPage(pageNum) {
     currentPage = pageNum;
     pageNumInput.value = pageNum;
     updateNavigationButtons();
+    updateZoomLevel();
     updateThumbnailSelection();
     updateBookmarkButton();
     renderHighlights();
@@ -514,13 +523,14 @@ function onMouseUp(e) {
 
   // Minimum size check
   if (width >= 5 && height >= 5) {
+    // Store coordinates as ratios (0-1) so they scale correctly with zoom changes
     const highlight = {
       id: Date.now().toString(),
       page: currentPage,
-      x: x,
-      y: y,
-      width: width,
-      height: height,
+      xRatio: x / canvas.width,
+      yRatio: y / canvas.height,
+      widthRatio: width / canvas.width,
+      heightRatio: height / canvas.height,
       color: selectedColor,
       note: '',
       created: Date.now(),
@@ -548,10 +558,11 @@ function renderHighlights() {
   pageHighlights.forEach(highlight => {
     const div = document.createElement('div');
     div.className = 'highlight-rect';
-    div.style.left = highlight.x + 'px';
-    div.style.top = highlight.y + 'px';
-    div.style.width = highlight.width + 'px';
-    div.style.height = highlight.height + 'px';
+    // Convert stored ratios back to current canvas pixel coordinates
+    div.style.left = (highlight.xRatio * canvas.width) + 'px';
+    div.style.top = (highlight.yRatio * canvas.height) + 'px';
+    div.style.width = (highlight.widthRatio * canvas.width) + 'px';
+    div.style.height = (highlight.heightRatio * canvas.height) + 'px';
     div.style.backgroundColor = highlight.color;
 
     // Show note on hover
@@ -606,7 +617,7 @@ function hideTooltip() {
 // Save highlights
 function saveHighlights() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const highlightsDir = path.join(userDataPath, 'highlights');
 
     if (!fs.existsSync(highlightsDir)) {
@@ -630,7 +641,7 @@ function saveHighlights() {
 // Load highlights
 function loadHighlights() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const highlightsDir = path.join(userDataPath, 'highlights');
     const fileName = path.basename(pdfFilePath, '.pdf') + '.json';
     const filePath = path.join(highlightsDir, fileName);
@@ -715,7 +726,7 @@ function renderBookmarks() {
 
 function saveBookmarks() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const bookmarksDir = path.join(userDataPath, 'bookmarks');
 
     if (!fs.existsSync(bookmarksDir)) {
@@ -738,7 +749,7 @@ function saveBookmarks() {
 
 function loadBookmarks() {
   try {
-    const userDataPath = ipcRenderer.sendSync('get-user-data-path');
+    const userDataPath = getUserDataPath();
     const bookmarksDir = path.join(userDataPath, 'bookmarks');
     const fileName = path.basename(pdfFilePath, '.pdf') + '.json';
     const filePath = path.join(bookmarksDir, fileName);
@@ -754,12 +765,6 @@ function loadBookmarks() {
     bookmarks = [];
   }
 }
-
-// Add synchronous IPC handler for get-user-data-path
-ipcRenderer.on('get-user-data-path', (event) => {
-  event.returnValue = require('electron').remote?.app?.getPath('userData') ||
-                      path.join(require('os').homedir(), '.study-pdf-viewer');
-});
 
 // Merge PDF functions
 function openMergeModal() {
@@ -784,14 +789,14 @@ function renderMergeFileList() {
 
   mergeFiles.forEach((filePath, index) => {
     const item = document.createElement('div');
-    item.style.cssText = 'background-color: #202124; padding: 12px; margin-bottom: 8px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;';
+    item.className = 'merge-file-item';
 
     const fileName = document.createElement('span');
-    fileName.style.cssText = 'font-size: 13px; color: #e8eaed; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;';
+    fileName.className = 'merge-file-name';
     fileName.textContent = `${index + 1}. ${path.basename(filePath)}`;
 
     const removeBtn = document.createElement('button');
-    removeBtn.style.cssText = 'background: none; border: none; color: #9aa0a6; cursor: pointer; font-size: 16px; padding: 4px;';
+    removeBtn.className = 'merge-file-remove';
     removeBtn.textContent = '×';
     removeBtn.addEventListener('click', () => {
       mergeFiles.splice(index, 1);

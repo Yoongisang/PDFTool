@@ -341,11 +341,6 @@
       openPDFViewer(filePath);
     });
 
-    // Make get-user-data-path synchronous
-    ipcRenderer.on('get-user-data-path', (event) => {
-      event.returnValue = require('electron').remote.app.getPath('userData');
-    });
-
     // Load recent files on startup
     loadRecentFiles();
   </script>
