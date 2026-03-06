@@ -21,7 +21,20 @@ async function getOCRWorker(win) {
 
 let mainWindow;
 
-function createWindow() {
+// Extract a PDF path from argv (works in both dev and packaged mode)
+function getPdfFromArgs(argv) {
+  // Dev:       electron . [file.pdf]  → meaningful args start at index 2
+  // Packaged:  app.exe  [file.pdf]   → meaningful args start at index 1
+  const args = argv.slice(app.isPackaged ? 1 : 2);
+  return args.find(a => a.toLowerCase().endsWith('.pdf') && fs.existsSync(a)) || null;
+}
+
+// Open a PDF in the main window — works whether it's on index.html or viewer.html
+function openPdfInWindow(win, filePath) {
+  win.loadFile('viewer.html', { query: { file: filePath } });
+}
+
+function createWindow(initialPdf) {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -36,7 +49,12 @@ function createWindow() {
     show: false
   });
 
-  mainWindow.loadFile('index.html');
+  // If launched with a PDF file (e.g. "Open with"), go straight to the viewer
+  if (initialPdf) {
+    openPdfInWindow(mainWindow, initialPdf);
+  } else {
+    mainWindow.loadFile('index.html');
+  }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
@@ -218,16 +236,34 @@ ipcMain.on('get-user-data-path', (event) => {
   event.returnValue = app.getPath('userData');
 });
 
-app.whenReady().then(createWindow);
+// Single instance lock — so double-clicking a PDF while the app is open
+// sends the new file to the existing window instead of spawning a second app
+const gotTheLock = app.requestSingleInstanceLock();
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+if (!gotTheLock) {
+  // Another instance is already running; it will receive 'second-instance'
+  app.quit();
+} else {
+  app.on('second-instance', (event, argv) => {
+    // A second "Open with" was triggered — focus existing window and load the new file
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      const pdf = getPdfFromArgs(argv);
+      if (pdf) openPdfInWindow(mainWindow, pdf);
+    }
+  });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+  app.whenReady().then(() => {
+    const initialPdf = getPdfFromArgs(process.argv);
+    createWindow(initialPdf);
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(null);
+  });
+}
