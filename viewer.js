@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const { PDFDocument } = require('pdf-lib');
+const { createWorker } = require('tesseract.js');
 
 // Configure PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = path.join(__dirname, 'node_modules/pdfjs-dist/legacy/build/pdf.worker.js');
@@ -16,6 +17,8 @@ let pdfFilePath = null;
 let highlights = [];
 let bookmarks = [];
 let isHighlightMode = false;
+let isOCRMode = false;
+let ocrWorker = null;
 let selectedColor = '#FFFF00';
 let selectionStart = null;
 let currentHighlightId = null;
@@ -72,6 +75,16 @@ const splitEndPage = document.getElementById('splitEndPage');
 const splitInfo = document.getElementById('splitInfo');
 const splitExecute = document.getElementById('splitExecute');
 const splitCancel = document.getElementById('splitCancel');
+
+const ocrModeBtn = document.getElementById('ocrMode');
+const ocrModal = document.getElementById('ocrModal');
+const ocrLoading = document.getElementById('ocrLoading');
+const ocrResult = document.getElementById('ocrResult');
+const ocrProgressText = document.getElementById('ocrProgressText');
+const ocrHintText = document.getElementById('ocrHintText');
+const ocrText = document.getElementById('ocrText');
+const ocrClose = document.getElementById('ocrClose');
+const ocrCopy = document.getElementById('ocrCopy');
 
 const thumbnailsContent = document.getElementById('thumbnailsContent');
 const bookmarksContent = document.getElementById('bookmarksContent');
@@ -171,7 +184,8 @@ function setupEventListeners() {
     if (noteModal.classList.contains('show') ||
         mergeModal.classList.contains('show') ||
         splitModal.classList.contains('show') ||
-        confirmModal.classList.contains('show')) {
+        confirmModal.classList.contains('show') ||
+        ocrModal.classList.contains('show')) {
       return;
     }
     if (e.ctrlKey || e.metaKey) {
@@ -196,6 +210,12 @@ function setupEventListeners() {
   highlightModeBtn.addEventListener('click', () => {
     isHighlightMode = !isHighlightMode;
     if (isHighlightMode) {
+      // Deactivate OCR mode if active
+      if (isOCRMode) {
+        isOCRMode = false;
+        ocrModeBtn.classList.remove('active');
+        selectionRect.classList.remove('ocr-mode');
+      }
       highlightModeBtn.classList.add('active');
       colorPicker.style.display = 'flex';
       canvas.style.cursor = 'crosshair';
@@ -204,6 +224,46 @@ function setupEventListeners() {
       colorPicker.style.display = 'none';
       canvas.style.cursor = 'default';
     }
+  });
+
+  // OCR mode
+  ocrModeBtn.addEventListener('click', () => {
+    isOCRMode = !isOCRMode;
+    if (isOCRMode) {
+      // Deactivate highlight mode if active
+      if (isHighlightMode) {
+        isHighlightMode = false;
+        highlightModeBtn.classList.remove('active');
+        colorPicker.style.display = 'none';
+      }
+      ocrModeBtn.classList.add('active');
+      selectionRect.classList.add('ocr-mode');
+      canvas.style.cursor = 'crosshair';
+    } else {
+      ocrModeBtn.classList.remove('active');
+      selectionRect.classList.remove('ocr-mode');
+      canvas.style.cursor = 'default';
+    }
+  });
+
+  // OCR modal: close button
+  ocrClose.addEventListener('click', closeOCRModal);
+
+  // OCR modal: copy button
+  ocrCopy.addEventListener('click', () => {
+    const text = ocrText.value;
+    if (text) {
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = ocrCopy.textContent;
+        ocrCopy.textContent = '복사됨 ✓';
+        setTimeout(() => { ocrCopy.textContent = orig; }, 1500);
+      });
+    }
+  });
+
+  // OCR modal: close on backdrop click
+  ocrModal.addEventListener('click', (e) => {
+    if (e.target === ocrModal) closeOCRModal();
   });
 
   // Color picker
@@ -354,6 +414,79 @@ function closeNoteModal() {
   noteText.disabled = false;
   currentHighlightId = null;
 }
+
+// ── OCR ─────────────────────────────────────────────
+
+// Lazy-initialize Tesseract worker (kor + eng)
+async function getOCRWorker() {
+  if (!ocrWorker) {
+    ocrProgressText.textContent = '핵심 모듈 로드 중...';
+    ocrHintText.style.display = 'block';
+    ocrWorker = await createWorker(['kor', 'eng'], 1, {
+      logger: (m) => {
+        if (m.status === 'loading tesseract core') {
+          ocrProgressText.textContent = '핵심 모듈 로드 중...';
+        } else if (m.status === 'loading language traineddata') {
+          ocrProgressText.textContent = '언어 데이터 다운로드 중...';
+        } else if (m.status === 'initializing api') {
+          ocrProgressText.textContent = 'OCR 엔진 초기화 중...';
+          ocrHintText.style.display = 'none';
+        } else if (m.status === 'recognizing text') {
+          const pct = Math.round(m.progress * 100);
+          ocrProgressText.textContent = `텍스트 인식 중... ${pct}%`;
+        }
+      }
+    });
+  }
+  return ocrWorker;
+}
+
+// Perform OCR on a canvas sub-region (canvas pixel coords)
+async function performOCR(x, y, width, height) {
+  // Show modal in loading state
+  ocrLoading.style.display = 'block';
+  ocrResult.style.display = 'none';
+  ocrCopy.style.display = 'none';
+  ocrProgressText.textContent = '초기화 중...';
+  ocrHintText.style.display = 'block';
+  ocrModal.classList.add('show');
+
+  try {
+    // Capture the selected canvas region into a temporary canvas
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = width;
+    tempCanvas.height = height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(canvas, x, y, width, height, 0, 0, width, height);
+    const imageDataUrl = tempCanvas.toDataURL('image/png');
+
+    // Get (or init) worker and recognize
+    const worker = await getOCRWorker();
+    const { data: { text } } = await worker.recognize(imageDataUrl);
+
+    // Show result
+    ocrLoading.style.display = 'none';
+    ocrResult.style.display = 'block';
+    ocrText.value = text.trim() || '(인식된 텍스트 없음)';
+    ocrCopy.style.display = text.trim() ? 'inline-block' : 'none';
+  } catch (err) {
+    console.error('OCR error:', err);
+    ocrLoading.style.display = 'none';
+    ocrResult.style.display = 'block';
+    ocrText.value = 'OCR 처리 중 오류가 발생했습니다.\n' + err.message;
+    ocrCopy.style.display = 'none';
+  }
+}
+
+function closeOCRModal() {
+  ocrModal.classList.remove('show');
+  ocrText.value = '';
+  ocrResult.style.display = 'none';
+  ocrLoading.style.display = 'block';
+  ocrCopy.style.display = 'none';
+}
+
+// ── /OCR ────────────────────────────────────────────
 
 // Show custom confirm modal (replaces window.confirm to avoid focus issues)
 function showConfirmModal(message) {
@@ -525,9 +658,9 @@ function updateThumbnailSelection() {
   });
 }
 
-// Highlight system
+// Highlight / OCR drag system
 function onMouseDown(e) {
-  if (!isHighlightMode) return;
+  if (!isHighlightMode && !isOCRMode) return;
 
   const rect = canvas.getBoundingClientRect();
   selectionStart = {
@@ -543,7 +676,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-  if (!isHighlightMode || !selectionStart) return;
+  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const currentX = e.clientX - rect.left;
@@ -568,7 +701,7 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
-  if (!isHighlightMode || !selectionStart) return;
+  if ((!isHighlightMode && !isOCRMode) || !selectionStart) return;
 
   const rect = canvas.getBoundingClientRect();
   const endX = e.clientX - rect.left;
@@ -579,28 +712,32 @@ function onMouseUp(e) {
   const width = Math.abs(endX - selectionStart.x);
   const height = Math.abs(endY - selectionStart.y);
 
-  // Minimum size check
-  if (width >= 5 && height >= 5) {
-    // Store coordinates as ratios (0-1) so they scale correctly with zoom changes
-    const highlight = {
-      id: Date.now().toString(),
-      page: currentPage,
-      xRatio: x / canvas.width,
-      yRatio: y / canvas.height,
-      widthRatio: width / canvas.width,
-      heightRatio: height / canvas.height,
-      color: selectedColor,
-      note: '',
-      created: Date.now(),
-      modified: Date.now()
-    };
+  if (isOCRMode) {
+    // OCR: capture canvas region and recognize text
+    if (width >= 10 && height >= 10) {
+      performOCR(x, y, width, height);
+    }
+  } else if (isHighlightMode) {
+    // Highlight: store as ratio coords
+    if (width >= 5 && height >= 5) {
+      const highlight = {
+        id: Date.now().toString(),
+        page: currentPage,
+        xRatio: x / canvas.width,
+        yRatio: y / canvas.height,
+        widthRatio: width / canvas.width,
+        heightRatio: height / canvas.height,
+        color: selectedColor,
+        note: '',
+        created: Date.now(),
+        modified: Date.now()
+      };
 
-    highlights.push(highlight);
-    saveHighlights();
-    renderHighlights();
-
-    // Ask for note
-    openNoteModal(highlight.id);
+      highlights.push(highlight);
+      saveHighlights();
+      renderHighlights();
+      openNoteModal(highlight.id);
+    }
   }
 
   selectionStart = null;

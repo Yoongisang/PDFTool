@@ -24,8 +24,9 @@
     "electron-builder": "^24.6.4"
   },
   "dependencies": {
+    "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^3.11.174",
-    "pdf-lib": "^1.17.1"
+    "tesseract.js": "^7.0.0"
   },
   "build": {
     "appId": "com.studypdfviewer.app",
