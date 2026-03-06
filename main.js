@@ -46,14 +46,20 @@ function createWindow(initialPdf) {
       enableRemoteModule: true
     },
     backgroundColor: '#525659',
-    show: false
+    // When opening a PDF directly (e.g. "Open with"), the window MUST be
+    // created as visible (show: true) so that CSS viewport units (100vh) are
+    // computed correctly when viewer.html lays out.
+    // A window that was created with show: false reports a 0-height viewport
+    // on Windows even after .show() is called later — calling .show() after
+    // construction is NOT the same as creating with show: true.
+    // The dark backgroundColor prevents any visual flash while loading.
+    // For normal startup (no PDF arg) keep show: false + ready-to-show to
+    // avoid a blank window flashing before index.html is painted.
+    show: !!initialPdf
   });
 
-  // If launched with a PDF file (e.g. "Open with"), show the window first so
-  // that the viewport dimensions are correct before viewer.html renders.
-  // (A hidden window can compute 100vh = 0, breaking the flex layout.)
   if (initialPdf) {
-    mainWindow.show();
+    // Window is already visible; load the viewer directly.
     openPdfInWindow(mainWindow, initialPdf);
   } else {
     mainWindow.loadFile('index.html');

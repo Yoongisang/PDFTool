@@ -18,7 +18,15 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      height: 100vh;
+      /* Use position:fixed + inset instead of height:100vh.
+         100vh can resolve to 0 in Electron when the window was initially
+         created hidden; position:fixed sizing is always viewport-relative
+         and is immune to that bug. */
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
     }
 
     /* Toolbar */
