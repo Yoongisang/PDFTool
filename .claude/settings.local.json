@@ -24,7 +24,8 @@
       "Bash(git push origin refactor/bug-fixes-and-cleanup)",
       "Bash(gh pr:*)",
       "Bash(where gh)",
-      "Bash(winget list --name \"GitHub CLI\")"
+      "Bash(winget list --name \"GitHub CLI\")",
+      "Bash(git add README.md package.json)"
     ]
   }
 }
