@@ -101,16 +101,31 @@ function init() {
     return;
   }
 
-  // Load PDF
-  loadPDF(pdfFilePath).then(() => {
-    // Check if there's an action to perform
-    if (action === 'split') {
-      openSplitModal();
-    }
-  });
-
   // Event listeners
   setupEventListeners();
+
+  // Defer PDF loading until the window is actually visible.
+  // Canvas rendering silently fails in hidden Electron windows (show:false).
+  // When launched cold via "Open with", the window is hidden until
+  // ready-to-show fires; visibilitychange then lets us know it is safe to
+  // render into canvases.  When navigating from index.html the window is
+  // already visible so we start immediately.
+  function startLoading() {
+    loadPDF(pdfFilePath).then(() => {
+      if (action === 'split') openSplitModal();
+    });
+  }
+
+  if (document.visibilityState === 'visible') {
+    startLoading();
+  } else {
+    document.addEventListener('visibilitychange', function onVisible() {
+      if (document.visibilityState === 'visible') {
+        document.removeEventListener('visibilitychange', onVisible);
+        startLoading();
+      }
+    });
+  }
 }
 
 // Setup event listeners
